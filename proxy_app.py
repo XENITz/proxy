@@ -1,15 +1,15 @@
 import sys
-import json
 import winreg
 import subprocess
 import requests
 from pathlib import Path
-from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
-                              QLabel, QLineEdit, QPushButton, QMessageBox, QDialog,
-                              QFormLayout, QGroupBox, QFrame, QGraphicsDropShadowEffect, QCheckBox)
-from PySide6.QtCore import Qt, QSettings, QPropertyAnimation, QEasingCurve, QSize, QThread, Signal
-from PySide6.QtGui import (QIcon, QFont, QColor, QPalette, QLinearGradient, QBrush, QImage, 
-                          QPixmap, QIntValidator)
+from PySide6.QtWidgets import (
+    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+    QLabel, QLineEdit, QPushButton, QMessageBox, QDialog,
+    QFormLayout, QGroupBox, QFrame, QGraphicsDropShadowEffect, QCheckBox
+)
+from PySide6.QtCore import Qt, QSettings, QThread, Signal
+from PySide6.QtGui import QIcon, QColor, QIntValidator, QFont, QPalette
 
 # Versión actual de la aplicación
 APP_VERSION = "1.0.0"
@@ -17,61 +17,93 @@ APP_VERSION = "1.0.0"
 GITHUB_REPO = "XENITz/proxy"
 
 # Clase para verificar actualizaciones en segundo plano
+def compare_versions(version1: str, version2: str) -> int:
+    """Compara dos versiones semánticas x.y.z devolviendo 1, 0, -1."""
+    try:
+        v1_parts = [int(x) for x in version1.split('.')]
+        v2_parts = [int(x) for x in version2.split('.')]
+    except ValueError:
+        # Si el formato no es numérico, se considera iguales para no forzar actualización incorrecta
+        return 0
+    while len(v1_parts) < 3:
+        v1_parts.append(0)
+    while len(v2_parts) < 3:
+        v2_parts.append(0)
+    for a, b in zip(v1_parts[:3], v2_parts[:3]):
+        if a > b:
+            return 1
+        if a < b:
+            return -1
+    return 0
+
+
 class UpdateChecker(QThread):
-    update_available = Signal(str)  # Señal que se emite cuando hay una actualización disponible
-    
+    update_available = Signal(str)
+
     def run(self):
         try:
-            # Verificar si hay conexión a internet accediendo a GitHub
             api_url = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
             response = requests.get(api_url, timeout=5)
-            
             if response.status_code == 200:
                 data = response.json()
                 latest_version = data.get('tag_name', '').lstrip('v')
-                
-                # Comparar versiones
-                if latest_version and self.compare_versions(latest_version, APP_VERSION) > 0:
+                if latest_version and compare_versions(latest_version, APP_VERSION) > 0:
                     self.update_available.emit(latest_version)
+            # 404 u otros códigos se ignoran silenciosamente aquí (ya se manejan en verificación manual)
         except (requests.RequestException, ValueError, KeyError):
-            # Si hay algún error, simplemente ignorarlo y no mostrar actualizaciones
             pass
-    
-    def compare_versions(self, version1, version2):
-        """Compara dos versiones en formato semántico (x.y.z)"""
-        v1_parts = [int(x) for x in version1.split('.')]
-        v2_parts = [int(x) for x in version2.split('.')]
-        
-        # Asegurarse de que ambas listas tengan la misma longitud
-        while len(v1_parts) < 3:
-            v1_parts.append(0)
-        while len(v2_parts) < 3:
-            v2_parts.append(0)
-        
-        # Comparar cada componente de la versión
-        for i in range(3):
-            if v1_parts[i] > v2_parts[i]:
-                return 1  # version1 es mayor
-            elif v1_parts[i] < v2_parts[i]:
-                return -1  # version2 es mayor
-        
-        return 0  # Versiones iguales
+
+
+class ManualUpdateChecker(QThread):
+    finished_check = Signal(object)  # dict con claves: status, latest_version, error(optional)
+
+    def run(self):
+        try:
+            api_url = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
+            response = requests.get(api_url, timeout=8)
+            if response.status_code == 200:
+                data = response.json()
+                latest_version = data.get('tag_name', '').lstrip('v')
+                if latest_version:
+                    self.finished_check.emit({
+                        'status': 'ok',
+                        'latest_version': latest_version
+                    })
+                else:
+                    self.finished_check.emit({
+                        'status': 'error',
+                        'error': 'Formato de release inválido'
+                    })
+            elif response.status_code == 404:
+                self.finished_check.emit({'status': 'no_releases'})
+            else:
+                self.finished_check.emit({
+                    'status': 'error',
+                    'error': f"Código HTTP {response.status_code}"
+                })
+        except (requests.RequestException, ValueError, KeyError) as e:
+            self.finished_check.emit({'status': 'error', 'error': str(e)})
 
 class ModernButton(QPushButton):
-    def __init__(self, text, color="#2196F3", hover_color="#1976D2", parent=None):
+    def __init__(self, text, bg_color="#2196F3", hover_color="#1976D2", text_color="white", parent=None):
         super().__init__(text, parent)
         self.setFixedHeight(40)
         self.setCursor(Qt.PointingHandCursor)
-        
-        # Crear un estilo personalizado con CSS
-        self.color = color
+        self.bg_color = bg_color
         self.hover_color = hover_color
-        
-        # Aplicar estilo inicial
+        self.text_color = text_color
+        self._apply_style()
+        shadow = QGraphicsDropShadowEffect(self)
+        shadow.setBlurRadius(10)
+        shadow.setColor(QColor(0, 0, 0, 50))
+        shadow.setOffset(0, 2)
+        self.setGraphicsEffect(shadow)
+
+    def _apply_style(self):
         self.setStyleSheet(f"""
             QPushButton {{
-                background-color: {self.color};
-                color: white;
+                background-color: {self.bg_color};
+                color: {self.text_color};
                 border: none;
                 border-radius: 5px;
                 font-size: 14px;
@@ -90,13 +122,6 @@ class ModernButton(QPushButton):
                 color: #888888;
             }}
         """)
-        
-        # Agregar efecto de sombra
-        shadow = QGraphicsDropShadowEffect(self)
-        shadow.setBlurRadius(10)
-        shadow.setColor(QColor(0, 0, 0, 50))
-        shadow.setOffset(0, 2)
-        self.setGraphicsEffect(shadow)
 
 
 class SettingsDialog(QDialog):
@@ -107,8 +132,10 @@ class SettingsDialog(QDialog):
         self.setWindowTitle("Configuración de Proxy")
         self.setMinimumWidth(400)
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.Dialog)
-        # Hacer transparente el fondo para bordes redondeados
-        self.setAttribute(Qt.WA_TranslucentBackground)
+        # Quitar transparencia para evitar fondo invisible en algunos entornos
+        # (si se desea translucidez real, se puede reactivar pero puede interferir con eventos)
+        # self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setAutoFillBackground(True)
         
         # Atributos
         self._drag_position = None
@@ -222,6 +249,7 @@ class SettingsDialog(QDialog):
         
         # Contenedor para el contenido
         content_container = QWidget()
+        content_container.setStyleSheet("background: #FFFFFF; border: none;")
         content_layout = QVBoxLayout(content_container)
         content_layout.setContentsMargins(20, 20, 20, 20)
         content_layout.setSpacing(15)
@@ -250,13 +278,10 @@ class SettingsDialog(QDialog):
         # Buttons
         button_layout = QHBoxLayout()
         button_layout.setSpacing(10)
-        
-        cancel_button = ModernButton("Cancelar", "#e0e0e0", "#bdbdbd", "#f5f5f5")
+        cancel_button = ModernButton("Cancelar", "#e0e0e0", "#bdbdbd", "#222222", self)
         cancel_button.clicked.connect(self.reject)
-        
-        save_button = ModernButton("Guardar", "#2196F3", "#1976D2", "white")
+        save_button = ModernButton("Guardar", "#2196F3", "#1976D2", "white", self)
         save_button.clicked.connect(self.accept)
-        
         button_layout.addWidget(cancel_button)
         button_layout.addWidget(save_button)
         content_layout.addLayout(button_layout)
@@ -266,22 +291,14 @@ class SettingsDialog(QDialog):
         main_layout.addWidget(content_container)
     
     def accept(self):
-        # Save settings
-        self.proxy_ip = self.ip_input.text()
-        self.proxy_port = self.port_input.text()
-        
-        # Set result value
+        self.proxy_ip = self.ip_input.text().strip()
+        self.proxy_port = self.port_input.text().strip()
         self.result_value = QDialog.Accepted
-        
-        # Close the dialog
-        self.close()
-    
+        super().accept()
+
     def reject(self):
-        # Set result value
         self.result_value = QDialog.Rejected
-        
-        # Close the dialog
-        self.close()
+        super().reject()
     
     def get_result(self):
         return self.result_value, self.proxy_ip, self.proxy_port
@@ -303,6 +320,10 @@ class ProxyManager(QMainWindow):
         
         # Inicializar configuraciones
         self.settings = QSettings("ProxyManager", "SimpleProxyApp")
+
+        # Atributos para verificación manual de actualizaciones
+        self._manual_update_thread = None
+        self._wait_dialog = None
         
         # Intentar establecer el icono de la ventana
         try:
@@ -394,27 +415,26 @@ class ProxyManager(QMainWindow):
                 color: #555555;
             }
         """)
-        
-        result = msg.exec_()
-        
+        result = msg.exec()
+
         # Si el usuario marcó la casilla, guardar la preferencia
         if skip_checkbox.isChecked():
             self.settings.setValue("skip_update_version", new_version)
-            
+
         if result == QMessageBox.Yes:
             # Abrir el navegador en la página de releases del repositorio
             url = f"https://github.com/{GITHUB_REPO}/releases/latest"
             try:
                 subprocess.Popen(["start", url], shell=True)
-                
+
                 # Mostrar mensaje de confirmación
                 confirm_msg = QMessageBox(self)
                 confirm_msg.setWindowTitle("Actualización en Curso")
                 confirm_msg.setText("Se ha abierto el navegador para descargar la nueva versión.")
                 confirm_msg.setInformativeText("Recuerda cerrar esta aplicación antes de instalar la actualización.")
                 confirm_msg.setIcon(QMessageBox.Information)
-                confirm_msg.exec_()
-                
+                confirm_msg.exec()
+
             except (OSError, subprocess.SubprocessError):
                 # Si hay algún error al abrir el navegador, mostrar la URL
                 fallback_msg = QMessageBox(self)
@@ -422,7 +442,7 @@ class ProxyManager(QMainWindow):
                 fallback_msg.setText("Visita la siguiente URL para descargar la nueva versión:")
                 fallback_msg.setInformativeText(url)
                 fallback_msg.setIcon(QMessageBox.Information)
-                fallback_msg.exec_()
+                fallback_msg.exec()
     
     def mousePressEvent(self, event):
         # Permitir mover la ventana al hacer clic y arrastrar
@@ -441,53 +461,74 @@ class ProxyManager(QMainWindow):
         self._drag_position = None
     
     def check_updates_manually(self):
-        """Verifica actualizaciones manualmente y muestra un mensaje según el resultado"""
-        try:
-            # Mostrar mensaje de espera
-            wait_msg = QMessageBox(self)
-            wait_msg.setWindowTitle("Verificando Actualizaciones")
-            wait_msg.setText("Verificando si hay actualizaciones disponibles...")
-            wait_msg.setStandardButtons(QMessageBox.NoButton)
-            wait_msg.setIcon(QMessageBox.Information)
-            
-            # Mostrar el diálogo sin bloquear la UI
-            wait_msg.show()
-            
-            # Verificar actualizaciones
-            api_url = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
-            response = requests.get(api_url, timeout=5)
-            
-            # Cerrar el mensaje de espera
-            wait_msg.close()
-            
-            if response.status_code == 200:
-                data = response.json()
-                latest_version = data.get('tag_name', '').lstrip('v')
-                
-                # Comparar versiones
-                if latest_version and self.compare_versions(latest_version, APP_VERSION) > 0:
-                    # Resetear la configuración para mostrar siempre el diálogo de actualización
-                    self.settings.remove("skip_update_version")
-                    # Mostrar notificación de actualización
-                    self.show_update_notification(latest_version)
-                else:
-                    # No hay actualizaciones disponibles
-                    no_updates_msg = QMessageBox(self)
-                    no_updates_msg.setWindowTitle("No Hay Actualizaciones")
-                    no_updates_msg.setText(f"Ya estás utilizando la última versión: v{APP_VERSION}")
-                    no_updates_msg.setIcon(QMessageBox.Information)
-                    no_updates_msg.exec_()
+        """Verifica actualizaciones manualmente (asíncrono) evitando congelar la UI"""
+        # Evitar lanzar múltiples verificaciones simultáneas
+        if self._manual_update_thread and self._manual_update_thread.isRunning():
+            return
+        # Crear diálogo de progreso cancelable
+        from PySide6.QtWidgets import QProgressDialog
+        self._wait_dialog = QProgressDialog("Verificando si hay actualizaciones disponibles...", "Cancelar", 0, 0, self)
+        self._wait_dialog.setWindowTitle("Verificando Actualizaciones")
+        self._wait_dialog.setWindowModality(Qt.WindowModal)
+        self._wait_dialog.setCancelButtonText("Cancelar")
+        self._wait_dialog.canceled.connect(self._cancel_manual_update)
+        self._wait_dialog.show()
+
+        # Lanzar hilo
+        self._manual_update_thread = ManualUpdateChecker()
+        self._manual_update_thread.finished_check.connect(self._on_manual_update_finished)
+        self._manual_update_thread.start()
+
+    def _on_manual_update_finished(self, result: dict):
+        # Cerrar cuadro de progreso si existe
+        if self._wait_dialog:
+            self._wait_dialog.close()
+            self._wait_dialog = None
+
+        status = result.get('status')
+        if status == 'ok':
+            latest = result.get('latest_version')
+            if latest and compare_versions(latest, APP_VERSION) > 0:
+                self.settings.remove("skip_update_version")
+                self.show_update_notification(latest)
             else:
-                raise requests.RequestException(f"Error de servidor: {response.status_code}")
-                
-        except (requests.RequestException, ValueError, KeyError) as e:
-            # Error al verificar actualizaciones
+                no_updates_msg = QMessageBox(self)
+                no_updates_msg.setWindowTitle("No Hay Actualizaciones")
+                no_updates_msg.setText(f"Ya estás utilizando la última versión: v{APP_VERSION}")
+                no_updates_msg.setIcon(QMessageBox.Information)
+                no_updates_msg.exec()
+        elif status == 'no_releases':
+            no_rel = QMessageBox(self)
+            no_rel.setWindowTitle("Sin Releases")
+            no_rel.setText("El repositorio no tiene releases publicadas todavía.")
+            no_rel.setInformativeText("Crea una release en GitHub para habilitar la comprobación de versiones.")
+            no_rel.setIcon(QMessageBox.Information)
+            no_rel.exec()
+        else:
             error_msg = QMessageBox(self)
             error_msg.setWindowTitle("Error")
             error_msg.setText("No se pudo verificar si hay actualizaciones disponibles")
-            error_msg.setInformativeText(f"Error: {str(e)}")
+            error_msg.setInformativeText(f"Error: {result.get('error', 'Desconocido')}")
             error_msg.setIcon(QMessageBox.Warning)
-            error_msg.exec_()
+            error_msg.exec()
+
+        # Liberar referencia del hilo
+        self._manual_update_thread = None
+
+    def _cancel_manual_update(self):
+        if self._manual_update_thread and self._manual_update_thread.isRunning():
+            # No hay una forma directa y segura de matar el hilo de requests; marcamos cancelación lógica.
+            # Simplemente ignoraremos el resultado cuando llegue si el usuario canceló.
+            self._manual_update_thread.finished_check.disconnect(self._on_manual_update_finished)
+        if self._wait_dialog:
+            self._wait_dialog.close()
+            self._wait_dialog = None
+        # Mostrar mensaje de cancelación (opcional)
+        cancel_msg = QMessageBox(self)
+        cancel_msg.setWindowTitle("Cancelado")
+        cancel_msg.setText("La verificación de actualizaciones fue cancelada.")
+        cancel_msg.setIcon(QMessageBox.Information)
+        cancel_msg.exec()
     
     def setup_ui(self):
         # Main widget and layout
@@ -670,26 +711,21 @@ class ProxyManager(QMainWindow):
         self.disconnect_button.setEnabled(self.proxy_enabled)
     
     def open_settings(self):
-        # Obtener la configuración actual
         settings = QSettings("ProxyManager", "SimpleProxyApp")
         current_ip = settings.value("proxy_ip", "127.0.0.1")
         current_port = settings.value("proxy_port", "8080")
-        
-        # Crear el diálogo como una ventana independiente (no modal)
-        self.settings_dialog = SettingsDialog(None, current_ip, current_port)
-        
-        # Conectar señales para manejar el cierre del diálogo
-        self.settings_dialog.finished.connect(self.on_settings_dialog_finished)
-        
-        # Centrar el diálogo en la pantalla
-        screen_geometry = QApplication.primaryScreen().availableGeometry()
-        dialog_geometry = self.settings_dialog.geometry()
-        x = (screen_geometry.width() - dialog_geometry.width()) // 2
-        y = (screen_geometry.height() - dialog_geometry.height()) // 2
-        self.settings_dialog.move(x, y)
-        
-        # Mostrar el diálogo (no modal)
-        self.settings_dialog.show()
+        dlg = SettingsDialog(self, current_ip, current_port)
+        dlg.adjustSize()
+        # Centrar respecto a la ventana principal
+        parent_geom = self.frameGeometry()
+        g = dlg.frameGeometry()
+        dlg.move(parent_geom.center().x() - g.width() // 2, parent_geom.center().y() - g.height() // 2)
+        if dlg.exec() == QDialog.Accepted:
+            settings.setValue("proxy_ip", dlg.proxy_ip)
+            settings.setValue("proxy_port", dlg.proxy_port)
+            self.proxy_ip = dlg.proxy_ip
+            self.proxy_port = dlg.proxy_port
+            self.update_ui_state()
     
     def on_settings_dialog_finished(self, _):
         # Obtener resultados del diálogo
