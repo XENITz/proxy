@@ -564,11 +564,20 @@ class ProxyManager(QMainWindow):
         self.disconnect_button.setEnabled(self.proxy_enabled)
     
     def open_settings(self):
+        # Crear el diálogo
         dialog = SettingsDialog(self)
-        # Centrar el diálogo en la ventana principal
-        dialog.setWindowModality(Qt.ApplicationModal)
         
-        if dialog.exec() == QDialog.Accepted:
+        # Centrar el diálogo en la pantalla
+        screen_geometry = QApplication.primaryScreen().availableGeometry()
+        dialog_geometry = dialog.geometry()
+        x = (screen_geometry.width() - dialog_geometry.width()) // 2
+        y = (screen_geometry.height() - dialog_geometry.height()) // 2
+        dialog.move(x, y)
+        
+        # Mostrar el diálogo como modal
+        result = dialog.exec()
+        
+        if result == QDialog.Accepted:
             # Reload settings
             self.proxy_ip = self.settings.value("proxy_ip", "127.0.0.1")
             self.proxy_port = self.settings.value("proxy_port", "8080")

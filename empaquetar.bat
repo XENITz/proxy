@@ -13,6 +13,8 @@ pyinstaller --noconfirm --onefile --windowed ^
   --icon=icon.ico ^
   --add-data "README.md;." ^
   --add-data "icon.ico;." ^
+  --hidden-import=PySide6.QtSvg ^
+  --hidden-import=PySide6.QtXml ^
   proxy_app.py
 
 echo Empaquetado completado.
