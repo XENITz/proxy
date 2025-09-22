@@ -12,6 +12,7 @@ pyinstaller --noconfirm --onefile --windowed ^
   --name "Simple Proxy Manager" ^
   --icon=icon.ico ^
   --add-data "README.md;." ^
+  --add-data "icon.ico;." ^
   proxy_app.py
 
 echo Empaquetado completado.

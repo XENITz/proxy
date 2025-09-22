@@ -37,6 +37,8 @@ temp_*.*
 *.bak
 
 # Archivos específicos que no queremos versionar
-*.exe
 *.dll
 *.pyd
+
+# NO excluir los archivos de icono
+# *.ico

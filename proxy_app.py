@@ -286,6 +286,13 @@ class ProxyManager(QMainWindow):
         # Permitir mover la ventana
         self._drag_position = None
         
+        # Intentar establecer el icono de la ventana
+        try:
+            window_icon_path = str(Path(__file__).parent / "icon.ico")
+            self.setWindowIcon(QIcon(window_icon_path))
+        except Exception:
+            pass
+            
         # Aplicar estilo global a la aplicación
         self.setStyleSheet("""
             QMainWindow {
@@ -680,6 +687,15 @@ class ProxyManager(QMainWindow):
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
+    
+    # Cargar el icono de la aplicación
+    try:
+        # Intentar cargar el icono desde la ruta relativa
+        icon_path = str(Path(__file__).parent / "icon.ico")
+        app_icon = QIcon(icon_path)
+        app.setWindowIcon(app_icon)
+    except Exception as e:
+        print(f"No se pudo cargar el icono: {e}")
     
     # Establecer estilo de aplicación moderno
     app.setStyle("Fusion")
