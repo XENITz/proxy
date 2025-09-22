@@ -10,9 +10,9 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, QSettings, QThread, Signal
 from PySide6.QtGui import QIcon, QColor, QIntValidator, QFont, QPalette
-
+#PRUEBA RELEASE
 # Versión actual de la aplicación
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.0.1"
 # Debe ser en formato "owner/repo" para usar con la API de GitHub
 GITHUB_REPO = "XENITz/proxy"
 
