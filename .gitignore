@@ -1,0 +1,42 @@
+# Entorno virtual
+.venv/
+venv/
+env/
+ENV/
+
+# Archivos generados por PyInstaller
+build/
+dist/
+*.spec
+
+# Archivos de Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+pip-log.txt
+pip-delete-this-directory.txt
+*.log
+
+# Archivos de configuración de editor
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Archivos temporales de Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Archivos temporales del proyecto
+temp_*.*
+*.tmp
+*.bak
+
+# Archivos específicos que no queremos versionar
+*.exe
+*.dll
+*.pyd
