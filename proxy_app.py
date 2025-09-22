@@ -13,7 +13,8 @@ from PySide6.QtGui import (QIcon, QFont, QColor, QPalette, QLinearGradient, QBru
 
 # Versión actual de la aplicación
 APP_VERSION = "1.0.0"
-GITHUB_REPO = "https://github.com/XENITz/proxy.git"  # Cambia esto por tu repositorio de GitHub
+# Debe ser en formato "owner/repo" para usar con la API de GitHub
+GITHUB_REPO = "XENITz/proxy"
 
 # Clase para verificar actualizaciones en segundo plano
 class UpdateChecker(QThread):
@@ -22,7 +23,8 @@ class UpdateChecker(QThread):
     def run(self):
         try:
             # Verificar si hay conexión a internet accediendo a GitHub
-            response = requests.get(f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest", timeout=5)
+            api_url = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
+            response = requests.get(api_url, timeout=5)
             
             if response.status_code == 200:
                 data = response.json()
@@ -452,7 +454,8 @@ class ProxyManager(QMainWindow):
             wait_msg.show()
             
             # Verificar actualizaciones
-            response = requests.get(f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest", timeout=5)
+            api_url = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
+            response = requests.get(api_url, timeout=5)
             
             # Cerrar el mensaje de espera
             wait_msg.close()
@@ -762,11 +765,10 @@ class ProxyManager(QMainWindow):
                 f"<h3>¡Conexión Exitosa!</h3><p>Proxy configurado a <b>{proxy_server}</b></p>",
                 QMessageBox.Ok
             )
-            
         except OSError as e:
             QMessageBox.critical(
-                self, 
-                "Error", 
+                self,
+                "Error",
                 f"<h3>No se pudo habilitar el proxy</h3><p>{str(e)}</p>",
                 QMessageBox.Ok
             )
