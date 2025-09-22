@@ -35,54 +35,6 @@ class UpdateChecker(QThread):
             # Si hay algún error, simplemente ignorarlo y no mostrar actualizaciones
             pass
     
-    def check_updates_manually(self):
-        """Verifica actualizaciones manualmente y muestra un mensaje según el resultado"""
-        try:
-            # Mostrar mensaje de espera
-            wait_msg = QMessageBox(self)
-            wait_msg.setWindowTitle("Verificando Actualizaciones")
-            wait_msg.setText("Verificando si hay actualizaciones disponibles...")
-            wait_msg.setStandardButtons(QMessageBox.NoButton)
-            wait_msg.setIcon(QMessageBox.Information)
-            
-            # Mostrar el diálogo sin bloquear la UI
-            wait_msg.show()
-            
-            # Verificar actualizaciones
-            response = requests.get(f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest", timeout=5)
-            
-            # Cerrar el mensaje de espera
-            wait_msg.close()
-            
-            if response.status_code == 200:
-                data = response.json()
-                latest_version = data.get('tag_name', '').lstrip('v')
-                
-                # Comparar versiones
-                if latest_version and self.compare_versions(latest_version, APP_VERSION) > 0:
-                    # Resetear la configuración para mostrar siempre el diálogo de actualización
-                    self.settings.remove("skip_update_version")
-                    # Mostrar notificación de actualización
-                    self.show_update_notification(latest_version)
-                else:
-                    # No hay actualizaciones disponibles
-                    no_updates_msg = QMessageBox(self)
-                    no_updates_msg.setWindowTitle("No Hay Actualizaciones")
-                    no_updates_msg.setText(f"Ya estás utilizando la última versión: v{APP_VERSION}")
-                    no_updates_msg.setIcon(QMessageBox.Information)
-                    no_updates_msg.exec_()
-            else:
-                raise requests.RequestException(f"Error de servidor: {response.status_code}")
-                
-        except (requests.RequestException, ValueError, KeyError) as e:
-            # Error al verificar actualizaciones
-            error_msg = QMessageBox(self)
-            error_msg.setWindowTitle("Error")
-            error_msg.setText("No se pudo verificar si hay actualizaciones disponibles")
-            error_msg.setInformativeText(f"Error: {str(e)}")
-            error_msg.setIcon(QMessageBox.Warning)
-            error_msg.exec_()
-    
     def compare_versions(self, version1, version2):
         """Compara dos versiones en formato semántico (x.y.z)"""
         v1_parts = [int(x) for x in version1.split('.')]
@@ -485,6 +437,54 @@ class ProxyManager(QMainWindow):
     def mouseReleaseEvent(self, _):
         # Resetear la posición de arrastre
         self._drag_position = None
+    
+    def check_updates_manually(self):
+        """Verifica actualizaciones manualmente y muestra un mensaje según el resultado"""
+        try:
+            # Mostrar mensaje de espera
+            wait_msg = QMessageBox(self)
+            wait_msg.setWindowTitle("Verificando Actualizaciones")
+            wait_msg.setText("Verificando si hay actualizaciones disponibles...")
+            wait_msg.setStandardButtons(QMessageBox.NoButton)
+            wait_msg.setIcon(QMessageBox.Information)
+            
+            # Mostrar el diálogo sin bloquear la UI
+            wait_msg.show()
+            
+            # Verificar actualizaciones
+            response = requests.get(f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest", timeout=5)
+            
+            # Cerrar el mensaje de espera
+            wait_msg.close()
+            
+            if response.status_code == 200:
+                data = response.json()
+                latest_version = data.get('tag_name', '').lstrip('v')
+                
+                # Comparar versiones
+                if latest_version and self.compare_versions(latest_version, APP_VERSION) > 0:
+                    # Resetear la configuración para mostrar siempre el diálogo de actualización
+                    self.settings.remove("skip_update_version")
+                    # Mostrar notificación de actualización
+                    self.show_update_notification(latest_version)
+                else:
+                    # No hay actualizaciones disponibles
+                    no_updates_msg = QMessageBox(self)
+                    no_updates_msg.setWindowTitle("No Hay Actualizaciones")
+                    no_updates_msg.setText(f"Ya estás utilizando la última versión: v{APP_VERSION}")
+                    no_updates_msg.setIcon(QMessageBox.Information)
+                    no_updates_msg.exec_()
+            else:
+                raise requests.RequestException(f"Error de servidor: {response.status_code}")
+                
+        except (requests.RequestException, ValueError, KeyError) as e:
+            # Error al verificar actualizaciones
+            error_msg = QMessageBox(self)
+            error_msg.setWindowTitle("Error")
+            error_msg.setText("No se pudo verificar si hay actualizaciones disponibles")
+            error_msg.setInformativeText(f"Error: {str(e)}")
+            error_msg.setIcon(QMessageBox.Warning)
+            error_msg.exec_()
     
     def setup_ui(self):
         # Main widget and layout
