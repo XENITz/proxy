@@ -15,6 +15,9 @@ pyinstaller --noconfirm --onefile --windowed ^
   --add-data "icon.ico;." ^
   --hidden-import=PySide6.QtSvg ^
   --hidden-import=PySide6.QtXml ^
+  --hidden-import=PySide6.QtWidgets ^
+  --hidden-import=PySide6.QtCore ^
+  --hidden-import=PySide6.QtGui ^
   proxy_app.py
 
 echo Empaquetado completado.

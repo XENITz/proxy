@@ -6,7 +6,7 @@ import requests
 from pathlib import Path
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
                               QLabel, QLineEdit, QPushButton, QMessageBox, QDialog,
-                              QFormLayout, QGroupBox, QFrame, QGraphicsDropShadowEffect)
+                              QFormLayout, QGroupBox, QFrame, QGraphicsDropShadowEffect, QCheckBox)
 from PySide6.QtCore import Qt, QSettings, QPropertyAnimation, QEasingCurve, QSize, QThread, Signal
 from PySide6.QtGui import (QIcon, QFont, QColor, QPalette, QLinearGradient, QBrush, QImage, 
                           QPixmap, QIntValidator)
@@ -31,9 +31,57 @@ class UpdateChecker(QThread):
                 # Comparar versiones
                 if latest_version and self.compare_versions(latest_version, APP_VERSION) > 0:
                     self.update_available.emit(latest_version)
-        except Exception:
+        except (requests.RequestException, ValueError, KeyError):
             # Si hay algún error, simplemente ignorarlo y no mostrar actualizaciones
             pass
+    
+    def check_updates_manually(self):
+        """Verifica actualizaciones manualmente y muestra un mensaje según el resultado"""
+        try:
+            # Mostrar mensaje de espera
+            wait_msg = QMessageBox(self)
+            wait_msg.setWindowTitle("Verificando Actualizaciones")
+            wait_msg.setText("Verificando si hay actualizaciones disponibles...")
+            wait_msg.setStandardButtons(QMessageBox.NoButton)
+            wait_msg.setIcon(QMessageBox.Information)
+            
+            # Mostrar el diálogo sin bloquear la UI
+            wait_msg.show()
+            
+            # Verificar actualizaciones
+            response = requests.get(f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest", timeout=5)
+            
+            # Cerrar el mensaje de espera
+            wait_msg.close()
+            
+            if response.status_code == 200:
+                data = response.json()
+                latest_version = data.get('tag_name', '').lstrip('v')
+                
+                # Comparar versiones
+                if latest_version and self.compare_versions(latest_version, APP_VERSION) > 0:
+                    # Resetear la configuración para mostrar siempre el diálogo de actualización
+                    self.settings.remove("skip_update_version")
+                    # Mostrar notificación de actualización
+                    self.show_update_notification(latest_version)
+                else:
+                    # No hay actualizaciones disponibles
+                    no_updates_msg = QMessageBox(self)
+                    no_updates_msg.setWindowTitle("No Hay Actualizaciones")
+                    no_updates_msg.setText(f"Ya estás utilizando la última versión: v{APP_VERSION}")
+                    no_updates_msg.setIcon(QMessageBox.Information)
+                    no_updates_msg.exec_()
+            else:
+                raise requests.RequestException(f"Error de servidor: {response.status_code}")
+                
+        except (requests.RequestException, ValueError, KeyError) as e:
+            # Error al verificar actualizaciones
+            error_msg = QMessageBox(self)
+            error_msg.setWindowTitle("Error")
+            error_msg.setText("No se pudo verificar si hay actualizaciones disponibles")
+            error_msg.setInformativeText(f"Error: {str(e)}")
+            error_msg.setIcon(QMessageBox.Warning)
+            error_msg.exec_()
     
     def compare_versions(self, version1, version2):
         """Compara dos versiones en formato semántico (x.y.z)"""
@@ -98,7 +146,7 @@ class ModernButton(QPushButton):
 
 
 class SettingsDialog(QDialog):
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, proxy_ip="127.0.0.1", proxy_port="8080"):
         super().__init__(parent)
         
         # Configuración de la ventana
@@ -110,11 +158,12 @@ class SettingsDialog(QDialog):
         
         # Atributos
         self._drag_position = None
-        self.settings = QSettings("ProxyManager", "SimpleProxyApp")
-        self.proxy_ip = self.settings.value("proxy_ip", "127.0.0.1")
-        self.proxy_port = self.settings.value("proxy_port", "8080")
+        self.proxy_ip = proxy_ip
+        self.proxy_port = proxy_port
         self.ip_input = None
         self.port_input = None
+        self.result_value = QDialog.Rejected
+        self.parent_widget = parent
         
         self.setStyleSheet("""
             QDialog {
@@ -163,10 +212,9 @@ class SettingsDialog(QDialog):
             self.move(event.globalPosition().toPoint() - self._drag_position)
             event.accept()
     
-    def mouseReleaseEvent(self, event):
+    def mouseReleaseEvent(self, _):
         # Resetear la posición de arrastre
         self._drag_position = None
-        event.accept()
     
     def setup_ui(self):
         # Layout principal
@@ -268,10 +316,21 @@ class SettingsDialog(QDialog):
         self.proxy_ip = self.ip_input.text()
         self.proxy_port = self.port_input.text()
         
-        self.settings.setValue("proxy_ip", self.proxy_ip)
-        self.settings.setValue("proxy_port", self.proxy_port)
+        # Set result value
+        self.result_value = QDialog.Accepted
         
-        super().accept()
+        # Close the dialog
+        self.close()
+    
+    def reject(self):
+        # Set result value
+        self.result_value = QDialog.Rejected
+        
+        # Close the dialog
+        self.close()
+    
+    def get_result(self):
+        return self.result_value, self.proxy_ip, self.proxy_port
 
 
 class ProxyManager(QMainWindow):
@@ -285,12 +344,17 @@ class ProxyManager(QMainWindow):
         self.setAttribute(Qt.WA_TranslucentBackground)
         # Permitir mover la ventana
         self._drag_position = None
+        # Para almacenar el diálogo de configuración
+        self.settings_dialog = None
+        
+        # Inicializar configuraciones
+        self.settings = QSettings("ProxyManager", "SimpleProxyApp")
         
         # Intentar establecer el icono de la ventana
         try:
             window_icon_path = str(Path(__file__).parent / "icon.ico")
             self.setWindowIcon(QIcon(window_icon_path))
-        except Exception:
+        except (FileNotFoundError, OSError):
             pass
             
         # Aplicar estilo global a la aplicación
@@ -312,7 +376,6 @@ class ProxyManager(QMainWindow):
         self.check_for_updates()
         
         # Load settings
-        self.settings = QSettings("ProxyManager", "SimpleProxyApp")
         self.proxy_ip = self.settings.value("proxy_ip", "127.0.0.1")
         self.proxy_port = self.settings.value("proxy_port", "8080")
         
@@ -327,19 +390,36 @@ class ProxyManager(QMainWindow):
     
     def check_for_updates(self):
         """Inicia el proceso de verificación de actualizaciones en segundo plano"""
+        # Inicializar el objeto de configuración en caso de que aún no se haya hecho
+        if not hasattr(self, 'settings'):
+            self.settings = QSettings("ProxyManager", "SimpleProxyApp")
+            
         self.update_checker = UpdateChecker()
-        self.update_checker.update_available.connect(self.show_update_notification)
+        self.update_checker.update_available.connect(self.on_update_available)
         self.update_checker.start()
+    
+    def on_update_available(self, new_version):
+        """Procesa una actualización disponible y muestra la notificación si es necesario"""
+        # Comprobar si el usuario ha elegido omitir esta versión
+        skip_version = self.settings.value("skip_update_version", "")
+        
+        # Si el usuario no ha elegido omitir esta versión, mostrar la notificación
+        if skip_version != new_version:
+            self.show_update_notification(new_version)
     
     def show_update_notification(self, new_version):
         """Muestra una notificación cuando hay una actualización disponible"""
         msg = QMessageBox(self)
         msg.setWindowTitle("Actualización Disponible")
         msg.setText(f"Hay una nueva versión disponible: v{new_version}")
-        msg.setInformativeText(f"Estás usando la versión v{APP_VERSION}. ¿Deseas visitar el sitio de descarga?")
+        msg.setInformativeText(f"Estás usando la versión v{APP_VERSION}. ¿Deseas visitar el sitio de descarga ahora?\n\nPuedes actualizar más tarde desde el menú principal.")
         msg.setIcon(QMessageBox.Information)
         msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
         msg.setDefaultButton(QMessageBox.Yes)
+        
+        # Añadir checkbox para recordar la decisión
+        skip_checkbox = QCheckBox("No volver a mostrar para esta versión")
+        msg.setCheckBox(skip_checkbox)
         
         # Aplicar estilos al mensaje
         msg.setStyleSheet("""
@@ -356,18 +436,36 @@ class ProxyManager(QMainWindow):
             QPushButton:hover {
                 background-color: #1976D2;
             }
+            QCheckBox {
+                color: #555555;
+            }
         """)
         
-        if msg.exec_() == QMessageBox.Yes:
+        result = msg.exec_()
+        
+        # Si el usuario marcó la casilla, guardar la preferencia
+        if skip_checkbox.isChecked():
+            self.settings.setValue("skip_update_version", new_version)
+            
+        if result == QMessageBox.Yes:
             # Abrir el navegador en la página de releases del repositorio
             url = f"https://github.com/{GITHUB_REPO}/releases/latest"
             try:
                 subprocess.Popen(["start", url], shell=True)
-            except Exception:
+                
+                # Mostrar mensaje de confirmación
+                confirm_msg = QMessageBox(self)
+                confirm_msg.setWindowTitle("Actualización en Curso")
+                confirm_msg.setText("Se ha abierto el navegador para descargar la nueva versión.")
+                confirm_msg.setInformativeText("Recuerda cerrar esta aplicación antes de instalar la actualización.")
+                confirm_msg.setIcon(QMessageBox.Information)
+                confirm_msg.exec_()
+                
+            except (OSError, subprocess.SubprocessError):
                 # Si hay algún error al abrir el navegador, mostrar la URL
                 fallback_msg = QMessageBox(self)
                 fallback_msg.setWindowTitle("Enlace de Descarga")
-                fallback_msg.setText(f"Visita la siguiente URL para descargar la nueva versión:")
+                fallback_msg.setText("Visita la siguiente URL para descargar la nueva versión:")
                 fallback_msg.setInformativeText(url)
                 fallback_msg.setIcon(QMessageBox.Information)
                 fallback_msg.exec_()
@@ -384,7 +482,7 @@ class ProxyManager(QMainWindow):
             self.move(event.globalPosition().toPoint() - self._drag_position)
             event.accept()
     
-    def mouseReleaseEvent(self, event):
+    def mouseReleaseEvent(self, _):
         # Resetear la posición de arrastre
         self._drag_position = None
     
@@ -522,6 +620,11 @@ class ProxyManager(QMainWindow):
         container_layout.addLayout(button_layout)
         container_layout.addWidget(settings_button)
         
+        # Botón para verificar actualizaciones
+        check_updates_button = ModernButton("VERIFICAR ACTUALIZACIONES", "#FF9800", "#F57C00")
+        check_updates_button.clicked.connect(self.check_updates_manually)
+        container_layout.addWidget(check_updates_button)
+        
         # Add title bar and container to main layout
         main_layout.addWidget(title_bar)
         main_layout.addWidget(container)
@@ -564,25 +667,42 @@ class ProxyManager(QMainWindow):
         self.disconnect_button.setEnabled(self.proxy_enabled)
     
     def open_settings(self):
-        # Crear el diálogo
-        dialog = SettingsDialog(self)
+        # Obtener la configuración actual
+        settings = QSettings("ProxyManager", "SimpleProxyApp")
+        current_ip = settings.value("proxy_ip", "127.0.0.1")
+        current_port = settings.value("proxy_port", "8080")
+        
+        # Crear el diálogo como una ventana independiente (no modal)
+        self.settings_dialog = SettingsDialog(None, current_ip, current_port)
+        
+        # Conectar señales para manejar el cierre del diálogo
+        self.settings_dialog.finished.connect(self.on_settings_dialog_finished)
         
         # Centrar el diálogo en la pantalla
         screen_geometry = QApplication.primaryScreen().availableGeometry()
-        dialog_geometry = dialog.geometry()
+        dialog_geometry = self.settings_dialog.geometry()
         x = (screen_geometry.width() - dialog_geometry.width()) // 2
         y = (screen_geometry.height() - dialog_geometry.height()) // 2
-        dialog.move(x, y)
+        self.settings_dialog.move(x, y)
         
-        # Mostrar el diálogo como modal
-        result = dialog.exec()
+        # Mostrar el diálogo (no modal)
+        self.settings_dialog.show()
+    
+    def on_settings_dialog_finished(self, _):
+        # Obtener resultados del diálogo
+        result_value, proxy_ip, proxy_port = self.settings_dialog.get_result()
         
-        if result == QDialog.Accepted:
-            # Reload settings
-            self.proxy_ip = self.settings.value("proxy_ip", "127.0.0.1")
-            self.proxy_port = self.settings.value("proxy_port", "8080")
+        if result_value == QDialog.Accepted:
+            # Guardar la configuración
+            settings = QSettings("ProxyManager", "SimpleProxyApp")
+            settings.setValue("proxy_ip", proxy_ip)
+            settings.setValue("proxy_port", proxy_port)
             
-            # Update UI
+            # Actualizar variables locales
+            self.proxy_ip = proxy_ip
+            self.proxy_port = proxy_port
+            
+            # Actualizar UI
             self.update_ui_state()
     
     def is_proxy_enabled(self):
@@ -595,7 +715,7 @@ class ProxyManager(QMainWindow):
             proxy_enable, _ = winreg.QueryValueEx(key, "ProxyEnable")
             
             return bool(proxy_enable)
-        except Exception as e:
+        except OSError as e:
             print(f"Error checking proxy status: {e}")
             return False
     
@@ -609,7 +729,7 @@ class ProxyManager(QMainWindow):
             proxy_server, _ = winreg.QueryValueEx(key, "ProxyServer")
             
             return proxy_server
-        except Exception as e:
+        except OSError as e:
             print(f"Error getting proxy server: {e}")
             return ""
     
@@ -643,7 +763,7 @@ class ProxyManager(QMainWindow):
                 QMessageBox.Ok
             )
             
-        except Exception as e:
+        except OSError as e:
             QMessageBox.critical(
                 self, 
                 "Error", 
@@ -675,7 +795,7 @@ class ProxyManager(QMainWindow):
                 QMessageBox.Ok
             )
             
-        except Exception as e:
+        except OSError as e:
             QMessageBox.critical(
                 self, 
                 "Error", 
@@ -690,7 +810,7 @@ class ProxyManager(QMainWindow):
             # Run a PowerShell command to refresh settings
             subprocess.run(["powershell", "-Command", "& {(New-Object -ComObject WScript.Shell).SendKeys('^{F5}'); Start-Sleep -Milliseconds 500}"], 
                           capture_output=True, text=True, check=True)
-        except Exception as e:
+        except (OSError, subprocess.SubprocessError) as e:
             print(f"Error refreshing settings: {e}")
 
 
@@ -703,7 +823,7 @@ if __name__ == "__main__":
         icon_path = str(Path(__file__).parent / "icon.ico")
         app_icon = QIcon(icon_path)
         app.setWindowIcon(app_icon)
-    except Exception as e:
+    except (FileNotFoundError, OSError) as e:
         print(f"No se pudo cargar el icono: {e}")
     
     # Establecer estilo de aplicación moderno
